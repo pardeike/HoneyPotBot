@@ -1,11 +1,12 @@
 using Discord;
 using Discord.WebSocket;
+using HoneyPotBot;
 using Microsoft.Extensions.Logging;
 
-var logFormat = Environment.GetEnvironmentVariable("LOG_FORMAT") ?? "text";
-var logLevel = Enum.TryParse<LogLevel>(Environment.GetEnvironmentVariable("LOG_LEVEL"), out var level) ? level : LogLevel.Information;
-var pastMsgInterval = int.TryParse(Environment.GetEnvironmentVariable("PAST_MSG_INTERVAL"), out var past) ? past : 5;
-var futureMsgInterval = int.TryParse(Environment.GetEnvironmentVariable("FUTURE_MSG_INTERVAL"), out var future) ? future : 15;
+var logFormat = Config.Get("LOG_FORMAT") ?? "text";
+var logLevel = Enum.TryParse<LogLevel>(Config.Get("LOG_LEVEL"), out var level) ? level : LogLevel.Information;
+var pastMsgInterval = int.TryParse(Config.Get("PAST_MSG_INTERVAL"), out var past) ? past : 5;
+var futureMsgInterval = int.TryParse(Config.Get("FUTURE_MSG_INTERVAL"), out var future) ? future : 15;
 
 using var loggerFactory = LoggerFactory.Create(builder =>
 {
@@ -22,10 +23,10 @@ using var loggerFactory = LoggerFactory.Create(builder =>
 
 var logger = loggerFactory.CreateLogger("HoneyPotBot");
 
-var token = Environment.GetEnvironmentVariable("HONEYPOTBOT_TOKEN");
+var token = Config.Get("HONEYPOTBOT_TOKEN");
 if (string.IsNullOrEmpty(token))
 {
-	logger.LogCritical("HONEYPOTBOT_TOKEN environment variable is not set");
+	logger.LogCritical("HONEYPOTBOT_TOKEN not found in ~/.api-keys configuration file");
 	return;
 }
 
