@@ -16,7 +16,7 @@ This Discord bot fights against spammers by monitoring a honeypot channel called
 
 ## Environment Variables
 
-- `DISCORD_TOKEN` (required): the Discord bot token from the Discord Developer Portal.
+- `HONEYPOTBOT_TOKEN` (required): the Discord bot token from the Discord Developer Portal.
 - `LOG_FORMAT` (default: `text`): the log format, either `text` or `json`.
 - `LOG_LEVEL` (default: `Information`): the log level, either `Trace`, `Debug`, `Information`, `Warning`, `Error`, or `Critical`.
 - `PAST_MSG_INTERVAL` (default: `5`): the number of seconds to look back for older messages to be deleted
