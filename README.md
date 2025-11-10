@@ -15,7 +15,6 @@ This Discord bot fights against spammers by monitoring a honeypot channel called
 
    **Bot Permissions** (in the Bot section or when generating invite URL):
    - `View Channels` (Read Messages/View Channels)
-   - `Send Messages`
    - `Manage Messages` - Required to delete spammer messages
    - `Read Message History` - Required to read past messages
 
@@ -24,7 +23,7 @@ This Discord bot fights against spammers by monitoring a honeypot channel called
    - `Presence Intent` - Not required
    - `Message Content Intent` - **REQUIRED** - Must be enabled for the bot to read message content
 
-   The bot invite URL should have the `bot` scope with permission value `76800` (or select the permissions listed above).
+   The bot invite URL should have the `bot` scope with permission value `74752` (or select the permissions listed above).
 
 4. Install .NET 9 SDK from [Microsoft](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
 5. Create a configuration file at `~/.api-keys` with the following JSON format:
