@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "HoneyPotBot": {
+      "commandName": "Project",
+      "workingDirectory": "C:\\Users\\Brrainz\\Source\\Repos\\HoneyPotBot",
+      "environmentVariables": {
+      }
+    }
+  }
+}

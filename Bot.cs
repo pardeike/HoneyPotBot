@@ -5,16 +5,17 @@ using Microsoft.Extensions.Logging;
 
 var logFormat = Config.Get("LOG_FORMAT") ?? "text";
 var logLevel = Enum.TryParse<LogLevel>(Config.Get("LOG_LEVEL"), out var level) ? level : LogLevel.Information;
+var channelName = Config.Get("CHANNEL_NAME") ?? "intro";
 var pastMsgInterval = int.TryParse(Config.Get("PAST_MSG_INTERVAL"), out var past) ? past : 5;
-var futureMsgInterval = int.TryParse(Config.Get("FUTURE_MSG_INTERVAL"), out var future) ? future : 15;
+var futureMsgInterval = int.TryParse(Config.Get("FUTURE_MSG_INTERVAL"), out var future) ? future : 5;
 
 using var loggerFactory = LoggerFactory.Create(builder =>
 {
-	builder.SetMinimumLevel(logLevel);
+	_ = builder.SetMinimumLevel(logLevel);
 	if (logFormat == "json")
-		builder.AddJsonConsole();
+		_ = builder.AddJsonConsole();
 	else
-		builder.AddSimpleConsole(options =>
+		_ = builder.AddSimpleConsole(options =>
 		{
 			options.SingleLine = true;
 			options.TimestampFormat = "yyyy-MM-dd HH:mm:ss ";
@@ -30,14 +31,12 @@ if (string.IsNullOrEmpty(token))
 	return;
 }
 
-logger.LogInformation("Starting HoneyPotBot with PAST_MSG_INTERVAL={PastInterval}s and FUTURE_MSG_INTERVAL={FutureInterval}s", pastMsgInterval, futureMsgInterval);
+logger.LogInformation("Starting HoneyPotBot on channel {ChannelName} (-{PastInterval}s / {FutureInterval}s)", channelName, pastMsgInterval, futureMsgInterval);
 
-var config = new DiscordSocketConfig
+var client = new DiscordSocketClient(new DiscordSocketConfig
 {
 	GatewayIntents = GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent
-};
-
-var client = new DiscordSocketClient(config);
+});
 
 client.Log += msg =>
 {
@@ -63,10 +62,12 @@ client.Ready += () =>
 
 client.MessageReceived += async message =>
 {
+	logger.LogWarning("Received message in {Channel} from {User}: {Content}", message.Channel.Name, message.Author.Username, message.Content);
+
 	if (message.Channel is not SocketTextChannel channel)
 		return;
 
-	if (channel.Name != "intro")
+	if (channel.Name != channelName)
 		return;
 
 	if (message.Author.IsBot)
@@ -76,21 +77,23 @@ client.MessageReceived += async message =>
 	if (guildUser == null)
 		return;
 
-	var isPrivileged = guildUser.GuildPermissions.Administrator ||
+	var isPrivileged = false; /* guildUser.GuildPermissions.Administrator ||
 							 guildUser.GuildPermissions.ManageMessages ||
-							 guildUser.GuildPermissions.ModerateMembers;
+							 guildUser.GuildPermissions.ModerateMembers; */
 
 	if (isPrivileged)
 	{
-		logger.LogDebug("Ignoring message from privileged user {User} in intro channel", message.Author.Username);
+		logger.LogDebug("Ignoring message from privileged user {User} in #{ChannelName}", message.Author.Username, channelName);
 		return;
 	}
 
-	logger.LogWarning("Potential spammer detected: {User} posted in intro channel", message.Author.Username);
+	logger.LogWarning("Potential spammer detected: {User} posted in #{ChannelName}", message.Author.Username, channelName);
 
 	var triggerTime = message.Timestamp;
 	var startTime = triggerTime.AddSeconds(-pastMsgInterval);
 	var endTime = triggerTime.AddSeconds(futureMsgInterval);
+
+	logger.LogDebug("Triggered={TriggerTime} Start={StartTime} End={EndTime}", triggerTime, startTime, endTime);
 
 	var guild = channel.Guild;
 	var userId = message.Author.Id;
@@ -99,7 +102,7 @@ client.MessageReceived += async message =>
 
 	_ = Task.Run(async () =>
 	{
-		await MonitorAndDeleteMessages(guild, userId, endTime, message.Author.Username, logger);
+		await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
 	});
 };
 
@@ -124,13 +127,14 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 				var userMessages = messages
 					.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
 					.ToList();
+				logger.LogInformation("About to delete {Count} messages in {Channel}", userMessages.Count, channel.Name);
 
 				foreach (var msg in userMessages)
 				{
 					try
 					{
-						await msg.DeleteAsync();
-						logger.LogInformation("Deleted message from {User} in #{Channel} at {Timestamp}", msg.Author.Username, channel.Name, msg.Timestamp);
+						// await msg.DeleteAsync();
+						logger.LogInformation("!!! Deleted message from {User} in #{Channel} at {Timestamp}", msg.Author.Username, channel.Name, msg.Timestamp);
 					}
 					catch (Exception ex)
 					{
@@ -138,9 +142,9 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 					}
 				}
 			}
-			catch (Exception ex)
+			catch
 			{
-				logger.LogError(ex, "Failed to get messages from #{Channel}", channel.Name);
+				logger.LogError("Failed to get messages from #{Channel}", channel.Name);
 			}
 		}));
 	}
@@ -148,7 +152,7 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 	await Task.WhenAll(tasks);
 }
 
-static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, DateTimeOffset endTime, string username, ILogger logger)
+static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, DateTimeOffset startTime, DateTimeOffset endTime, string username, ILogger logger)
 {
 	var now = DateTimeOffset.UtcNow;
 	var remainingTime = endTime - now;
@@ -170,15 +174,16 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 				{
 					var messages = await channel.GetMessagesAsync(10).FlattenAsync();
 					var userMessages = messages
-						.Where(m => m.Author.Id == userId && m.Timestamp <= endTime)
+						.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
 						.ToList();
+					logger.LogInformation("About to delete {Count} messages in #{Channel}", userMessages.Count, channel.Name);
 
 					foreach (var msg in userMessages)
 					{
 						try
 						{
-							await msg.DeleteAsync();
-							logger.LogInformation("Deleted new message from user {UserId} in #{Channel}", userId, channel.Name);
+							// await msg.DeleteAsync();
+							logger.LogInformation("!!! Deleted new message from user {UserId} in #{Channel}", userId, channel.Name);
 						}
 						catch (Exception ex)
 						{
@@ -186,9 +191,9 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 						}
 					}
 				}
-				catch (Exception ex)
+				catch
 				{
-					logger.LogError(ex, "Failed to monitor messages in #{Channel}", channel.Name);
+					logger.LogError("Failed to monitor messages in #{Channel}", channel.Name);
 				}
 			}));
 		}
