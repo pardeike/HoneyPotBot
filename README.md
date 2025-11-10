@@ -8,8 +8,26 @@ This Discord bot fights against spammers by monitoring a honeypot channel called
 
 1. Clone the repository.
 2. Create a Discord bot and get its token from the [Discord Developer Portal](https://discord.com/developers/applications).
-3. Install .NET 9 SDK from [Microsoft](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
-4. Create a configuration file at `~/.api-keys` with the following JSON format:
+3. Configure the bot in the Developer Portal:
+
+   **OAuth2 Scopes** (in the OAuth2 → General section):
+   - `bot` - Required to add the bot to servers
+
+   **Bot Permissions** (in the Bot section or when generating invite URL):
+   - `View Channels` (Read Messages/View Channels)
+   - `Send Messages`
+   - `Manage Messages` - Required to delete spammer messages
+   - `Read Message History` - Required to read past messages
+
+   **Privileged Gateway Intents** (in the Bot section):
+   - `Server Members Intent` - Not required
+   - `Presence Intent` - Not required
+   - `Message Content Intent` - **REQUIRED** - Must be enabled for the bot to read message content
+
+   The bot invite URL should have the `bot` scope with permission value `76800` (or select the permissions listed above).
+
+4. Install .NET 9 SDK from [Microsoft](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
+5. Create a configuration file at `~/.api-keys` with the following JSON format:
 	```json
 	{
 		"HONEYPOTBOT_TOKEN": "your-discord-bot-token-here",
@@ -19,7 +37,7 @@ This Discord bot fights against spammers by monitoring a honeypot channel called
 		"FUTURE_MSG_INTERVAL": "15"
 	}
 	```
-5. Navigate to the project directory and run:
+6. Navigate to the project directory and run:
 	```bash
 	dotnet run
 	```
