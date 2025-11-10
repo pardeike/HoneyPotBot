@@ -50,7 +50,7 @@ client.Log += msg =>
 		LogSeverity.Debug => LogLevel.Trace,
 		_ => LogLevel.Information
 	};
-	logger.Log(logLevel, "{Source}: {Message}", msg.Source, msg.Message);
+	// logger.Log(logLevel, "{Source}: {Message}", msg.Source, msg.Message);
 	return Task.CompletedTask;
 };
 
@@ -62,7 +62,7 @@ client.Ready += () =>
 
 client.MessageReceived += async message =>
 {
-	logger.LogWarning("Received message in {Channel} from {User}: {Content}", message.Channel.Name, message.Author.Username, message.Content);
+	// logger.LogWarning("Received message in {Channel} from {User}: {Content}", message.Channel.Name, message.Author.Username, message.Content);
 
 	if (message.Channel is not SocketTextChannel channel)
 		return;
@@ -77,15 +77,9 @@ client.MessageReceived += async message =>
 	if (guildUser == null)
 		return;
 
-	var isPrivileged = false; /* guildUser.GuildPermissions.Administrator ||
-							 guildUser.GuildPermissions.ManageMessages ||
-							 guildUser.GuildPermissions.ModerateMembers; */
-
-	if (isPrivileged)
-	{
-		logger.LogDebug("Ignoring message from privileged user {User} in #{ChannelName}", message.Author.Username, channelName);
-		return;
-	}
+	if (guildUser.GuildPermissions.Administrator ||
+		guildUser.GuildPermissions.ManageMessages ||
+		guildUser.GuildPermissions.ModerateMembers) return;
 
 	logger.LogWarning("Potential spammer detected: {User} posted in #{ChannelName}", message.Author.Username, channelName);
 
@@ -122,14 +116,7 @@ static bool CanBotAccessChannel(SocketTextChannel channel, SocketGuild guild, IL
 {
 	var botUser = guild.CurrentUser;
 	var permissions = botUser.GetPermissions(channel);
-
-	// Bot needs to view the channel and manage messages to do its job
-	var canAccess = permissions.ViewChannel && permissions.ManageMessages;
-
-	if (!canAccess)
-		logger.LogDebug("Skipping channel #{Channel} - missing permissions (ViewChannel: {ViewChannel}, ManageMessages: {ManageMessages})", channel.Name, permissions.ViewChannel, permissions.ManageMessages);
-
-	return canAccess;
+	return permissions.ViewChannel && permissions.ManageMessages;
 }
 
 static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, DateTimeOffset startTime, DateTimeOffset endTime, ILogger logger)
@@ -138,7 +125,6 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 
 	foreach (var channel in guild.TextChannels)
 	{
-		// Skip channels where bot doesn't have necessary permissions
 		if (!CanBotAccessChannel(channel, guild, logger))
 			continue;
 
@@ -147,18 +133,16 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 			try
 			{
 				var messages = await channel.GetMessagesAsync(100).FlattenAsync();
-				// Filter messages: user must match AND timestamp must be within [startTime, endTime] inclusive
 				var userMessages = messages
 					.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
 					.ToList();
-				logger.LogInformation("About to delete {Count} messages in {Channel}", userMessages.Count, channel.Name);
 
 				foreach (var msg in userMessages)
 				{
 					try
 					{
-						// await msg.DeleteAsync();
-						logger.LogInformation("!!! Deleted message from {User} in #{Channel} at {Timestamp}", msg.Author.Username, channel.Name, msg.Timestamp);
+						await msg.DeleteAsync();
+						logger.LogInformation("Deleted message from {User} in #{Channel} at {Timestamp}: {Message}", msg.Author.Username, channel.Name, msg.Timestamp, msg.Content);
 					}
 					catch (Exception ex)
 					{
@@ -192,7 +176,6 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 
 		foreach (var channel in guild.TextChannels)
 		{
-			// Skip channels where bot doesn't have necessary permissions
 			if (!CanBotAccessChannel(channel, guild, logger))
 				continue;
 
@@ -201,18 +184,16 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 				try
 				{
 					var messages = await channel.GetMessagesAsync(10).FlattenAsync();
-					// Filter messages: user must match AND timestamp must be within [startTime, endTime] inclusive
 					var userMessages = messages
 						.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
 						.ToList();
-					logger.LogInformation("About to delete {Count} messages in #{Channel}", userMessages.Count, channel.Name);
 
 					foreach (var msg in userMessages)
 					{
 						try
 						{
-							// await msg.DeleteAsync();
-							logger.LogInformation("!!! Deleted new message from user {UserId} in #{Channel}", userId, channel.Name);
+							await msg.DeleteAsync();
+							logger.LogInformation("!!! Deleted new message from user {UserId} in #{Channel}: {Message}", userId, channel.Name, msg.Content);
 						}
 						catch (Exception ex)
 						{
