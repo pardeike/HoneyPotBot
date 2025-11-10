@@ -22,10 +22,10 @@ using var loggerFactory = LoggerFactory.Create(builder =>
 
 var logger = loggerFactory.CreateLogger("HoneyPotBot");
 
-var token = Environment.GetEnvironmentVariable("DISCORD_TOKEN");
+var token = Environment.GetEnvironmentVariable("HONEYPOTBOT_TOKEN");
 if (string.IsNullOrEmpty(token))
 {
-	logger.LogCritical("DISCORD_TOKEN environment variable is not set");
+	logger.LogCritical("HONEYPOTBOT_TOKEN environment variable is not set");
 	return;
 }
 
