@@ -89,6 +89,11 @@ client.MessageReceived += async message =>
 
 	logger.LogWarning("Potential spammer detected: {User} posted in #{ChannelName}", message.Author.Username, channelName);
 
+	// Calculate time window for message deletion:
+	// - triggerTime: when the user posted in the honeypot channel
+	// - startTime: pastMsgInterval seconds before the trigger (to catch earlier spam)
+	// - endTime: futureMsgInterval seconds after the trigger (to catch continued spam)
+	// Both boundaries are inclusive (>= startTime AND <= endTime)
 	var triggerTime = message.Timestamp;
 	var startTime = triggerTime.AddSeconds(-pastMsgInterval);
 	var endTime = triggerTime.AddSeconds(futureMsgInterval);
@@ -113,17 +118,36 @@ logger.LogInformation("Bot started successfully");
 
 await Task.Delay(-1);
 
+static bool CanBotAccessChannel(SocketTextChannel channel, SocketGuild guild, ILogger logger)
+{
+	var botUser = guild.CurrentUser;
+	var permissions = botUser.GetPermissions(channel);
+
+	// Bot needs to view the channel and manage messages to do its job
+	var canAccess = permissions.ViewChannel && permissions.ManageMessages;
+
+	if (!canAccess)
+		logger.LogDebug("Skipping channel #{Channel} - missing permissions (ViewChannel: {ViewChannel}, ManageMessages: {ManageMessages})", channel.Name, permissions.ViewChannel, permissions.ManageMessages);
+
+	return canAccess;
+}
+
 static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, DateTimeOffset startTime, DateTimeOffset endTime, ILogger logger)
 {
 	var tasks = new List<Task>();
 
 	foreach (var channel in guild.TextChannels)
 	{
+		// Skip channels where bot doesn't have necessary permissions
+		if (!CanBotAccessChannel(channel, guild, logger))
+			continue;
+
 		tasks.Add(Task.Run(async () =>
 		{
 			try
 			{
 				var messages = await channel.GetMessagesAsync(100).FlattenAsync();
+				// Filter messages: user must match AND timestamp must be within [startTime, endTime] inclusive
 				var userMessages = messages
 					.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
 					.ToList();
@@ -168,11 +192,16 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 
 		foreach (var channel in guild.TextChannels)
 		{
+			// Skip channels where bot doesn't have necessary permissions
+			if (!CanBotAccessChannel(channel, guild, logger))
+				continue;
+
 			tasks.Add(Task.Run(async () =>
 			{
 				try
 				{
 					var messages = await channel.GetMessagesAsync(10).FlattenAsync();
+					// Filter messages: user must match AND timestamp must be within [startTime, endTime] inclusive
 					var userMessages = messages
 						.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
 						.ToList();
