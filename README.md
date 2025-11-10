@@ -9,12 +9,24 @@ This Discord bot fights against spammers by monitoring a honeypot channel called
 1. Clone the repository.
 2. Create a Discord bot and get its token from the [Discord Developer Portal](https://discord.com/developers/applications).
 3. Install .NET 9 SDK from [Microsoft](https://dotnet.microsoft.com/en-us/download/dotnet/9.0).
-4. Navigate to the project directory and run:
+4. Create a configuration file at `~/.api-keys` with the following JSON format:
+	```json
+	{
+		"HONEYPOTBOT_TOKEN": "your-discord-bot-token-here",
+		"LOG_FORMAT": "text",
+		"LOG_LEVEL": "Information",
+		"PAST_MSG_INTERVAL": "5",
+		"FUTURE_MSG_INTERVAL": "15"
+	}
+	```
+5. Navigate to the project directory and run:
 	```bash
 	dotnet run
 	```
 
-## Environment Variables
+## Configuration
+
+Configuration is read from `~/.api-keys` file in JSON format with the following keys:
 
 - `HONEYPOTBOT_TOKEN` (required): the Discord bot token from the Discord Developer Portal.
 - `LOG_FORMAT` (default: `text`): the log format, either `text` or `json`.
