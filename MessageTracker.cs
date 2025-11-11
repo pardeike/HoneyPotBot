@@ -6,6 +6,7 @@ namespace HoneyPotBot;
 public class MessageTracker
 {
 	private readonly ConcurrentDictionary<ulong, List<TrackedMessage>> _userMessages = new();
+	private readonly ConcurrentDictionary<ulong, DateTimeOffset> _honeypotDetectedUsers = new();
 	private readonly int _deltaInterval;
 	private readonly int _minMsgLength;
 	private readonly bool _linkRequired;
@@ -72,9 +73,24 @@ public class MessageTracker
 
 	public (SpamDetectionResult result, string reason, ulong channelId) CheckMessage(string channelName, ulong userId, ulong channelId, string content, DateTimeOffset timestamp)
 	{
+		// Clean up old honeypot detections
+		CleanupHoneypotDetections(timestamp);
+
+		// Check if user was previously detected in honeypot channel
+		if (_honeypotDetectedUsers.TryGetValue(userId, out var detectionTime))
+		{
+			// If still within the tracking window, unconditionally flag as spam
+			if ((timestamp - detectionTime).TotalSeconds <= _deltaInterval)
+				return (SpamDetectionResult.HoneypotDetected, "User previously posted in honeypot channel", 0);
+		}
+
 		// Check if message is in honeypot channel
 		if (channelName == _honeypotChannelName)
+		{
+			// Mark user as honeypot-detected for future messages
+			_honeypotDetectedUsers[userId] = timestamp;
 			return (SpamDetectionResult.HoneypotTriggered, $"Posted in honeypot channel '{_honeypotChannelName}'", 0);
+		}
 
 		// Check for cross-channel spam detection
 		if (!ShouldTrackMessage(content))
@@ -110,6 +126,22 @@ public class MessageTracker
 						_userMessages.TryRemove(userId, out _);
 				}
 			}
+		}
+	}
+
+	private void CleanupHoneypotDetections(DateTimeOffset currentTime)
+	{
+		var usersToRemove = new List<ulong>();
+
+		foreach (var kvp in _honeypotDetectedUsers)
+		{
+			if ((currentTime - kvp.Value).TotalSeconds > _deltaInterval)
+				usersToRemove.Add(kvp.Key);
+		}
+
+		foreach (var userId in usersToRemove)
+		{
+			_honeypotDetectedUsers.TryRemove(userId, out _);
 		}
 	}
 
@@ -179,5 +211,6 @@ public enum SpamDetectionResult
 	Clean,
 	Ignored,
 	HoneypotTriggered,
+	HoneypotDetected,
 	DuplicateDetected
 }

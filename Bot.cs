@@ -9,7 +9,7 @@ var channelName = Config.Get("CHANNEL_NAME") ?? "intro";
 var pastMsgInterval = int.TryParse(Config.Get("PAST_MSG_INTERVAL"), out var past) ? past : 300;
 var futureMsgInterval = int.TryParse(Config.Get("FUTURE_MSG_INTERVAL"), out var future) ? future : 300;
 var msgDeltaInterval = int.TryParse(Config.Get("MSG_DELTA_INTERVAL"), out var delta) ? delta : 120;
-var minMsgLength = int.TryParse(Config.Get("MIN_MSG_LENGTH"), out var minLen) ? minLen : 100;
+var minMsgLength = int.TryParse(Config.Get("MIN_MSG_LENGTH"), out var minLen) ? minLen : 40;
 var linkRequired = bool.TryParse(Config.Get("LINK_REQUIRED"), out var linkReq) ? linkReq : true;
 var msgSimilarityThreshold = double.TryParse(Config.Get("MSG_SIMILARITY_THRESHOLD"), out var simThresh) ? simThresh : 0.85;
 
@@ -111,6 +111,21 @@ client.MessageReceived += async message =>
 		{
 			await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
 		});
+	}
+	else if (result == SpamDetectionResult.HoneypotDetected)
+	{
+		logger.LogWarning("Known spammer: {User} previously posted in honeypot channel, deleting message in #{CurrentChannel}", message.Author.Username, channel.Name);
+
+		// Delete this message immediately without running full scan
+		try
+		{
+			await message.DeleteAsync();
+			logger.LogInformation("Deleted message from known spammer {User} in #{Channel}", message.Author.Username, channel.Name);
+		}
+		catch (Exception ex)
+		{
+			logger.LogError(ex, "Failed to delete message from known spammer {User} in #{Channel}", message.Author.Username, channel.Name);
+		}
 	}
 	else if (result == SpamDetectionResult.DuplicateDetected)
 	{
