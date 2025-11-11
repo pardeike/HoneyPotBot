@@ -8,6 +8,10 @@ var logLevel = Enum.TryParse<LogLevel>(Config.Get("LOG_LEVEL"), out var level) ?
 var channelName = Config.Get("CHANNEL_NAME") ?? "intro";
 var pastMsgInterval = int.TryParse(Config.Get("PAST_MSG_INTERVAL"), out var past) ? past : 300;
 var futureMsgInterval = int.TryParse(Config.Get("FUTURE_MSG_INTERVAL"), out var future) ? future : 300;
+var msgDeltaInterval = int.TryParse(Config.Get("MSG_DELTA_INTERVAL"), out var delta) ? delta : 120;
+var minMsgLength = int.TryParse(Config.Get("MIN_MSG_LENGTH"), out var minLen) ? minLen : 100;
+var linkRequired = bool.TryParse(Config.Get("LINK_REQUIRED"), out var linkReq) ? linkReq : true;
+var msgSimilarityThreshold = double.TryParse(Config.Get("MSG_SIMILARITY_THRESHOLD"), out var simThresh) ? simThresh : 0.85;
 
 using var loggerFactory = LoggerFactory.Create(builder =>
 {
@@ -32,6 +36,9 @@ if (string.IsNullOrEmpty(token))
 }
 
 logger.LogInformation("Starting HoneyPotBot on channel {ChannelName} (-{PastInterval}s / {FutureInterval}s)", channelName, pastMsgInterval, futureMsgInterval);
+logger.LogInformation("Cross-channel spam detection enabled: delta={DeltaInterval}s, minLength={MinLength}, linkRequired={LinkRequired}, similarity={Similarity}", msgDeltaInterval, minMsgLength, linkRequired, msgSimilarityThreshold);
+
+var messageTracker = new MessageTracker(msgDeltaInterval, minMsgLength, linkRequired, msgSimilarityThreshold);
 
 var client = new DiscordSocketClient(new DiscordSocketConfig
 {
@@ -67,9 +74,6 @@ client.MessageReceived += async message =>
 	if (message.Channel is not SocketTextChannel channel)
 		return;
 
-	if (channel.Name != channelName)
-		return;
-
 	if (message.Author.IsBot)
 		return;
 
@@ -81,28 +85,67 @@ client.MessageReceived += async message =>
 		guildUser.GuildPermissions.ManageMessages ||
 		guildUser.GuildPermissions.ModerateMembers) return;
 
-	logger.LogWarning("Potential spammer detected: {User} posted in #{ChannelName}", message.Author.Username, channelName);
-
-	// Calculate time window for message deletion:
-	// - triggerTime: when the user posted in the honeypot channel
-	// - startTime: pastMsgInterval seconds before the trigger (to catch earlier spam)
-	// - endTime: futureMsgInterval seconds after the trigger (to catch continued spam)
-	// Both boundaries are inclusive (>= startTime AND <= endTime)
-	var triggerTime = message.Timestamp;
-	var startTime = triggerTime.AddSeconds(-pastMsgInterval);
-	var endTime = triggerTime.AddSeconds(futureMsgInterval);
-
-	logger.LogDebug("Triggered={TriggerTime} Start={StartTime} End={EndTime}", triggerTime, startTime, endTime);
-
 	var guild = channel.Guild;
 	var userId = message.Author.Id;
+	var channelId = channel.Id;
+	var content = message.Content;
+	var timestamp = message.Timestamp;
 
-	await DeleteUserMessagesInInterval(guild, userId, startTime, endTime, logger);
-
-	_ = Task.Run(async () =>
+	// Check if message is in honeypot channel
+	if (channel.Name == channelName)
 	{
-		await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
-	});
+		logger.LogWarning("Potential spammer detected: {User} posted in #{ChannelName}", message.Author.Username, channelName);
+
+		// Calculate time window for message deletion:
+		// - triggerTime: when the user posted in the honeypot channel
+		// - startTime: pastMsgInterval seconds before the trigger (to catch earlier spam)
+		// - endTime: futureMsgInterval seconds after the trigger (to catch continued spam)
+		// Both boundaries are inclusive (>= startTime AND <= endTime)
+		var triggerTime = message.Timestamp;
+		var startTime = triggerTime.AddSeconds(-pastMsgInterval);
+		var endTime = triggerTime.AddSeconds(futureMsgInterval);
+
+		logger.LogDebug("Triggered={TriggerTime} Start={StartTime} End={EndTime}", triggerTime, startTime, endTime);
+
+		await DeleteUserMessagesInInterval(guild, userId, startTime, endTime, logger);
+
+		_ = Task.Run(async () =>
+		{
+			await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
+		});
+	}
+	else
+	{
+		// Check for cross-channel spam detection
+		if (!messageTracker.ShouldTrackMessage(content))
+			return;
+
+		var (isDuplicate, firstChannelId) = messageTracker.CheckForDuplicate(userId, channelId, content, timestamp);
+
+		if (isDuplicate)
+		{
+			logger.LogWarning("Cross-channel spam detected: {User} posted similar messages in multiple channels (first in channel {FirstChannelId}, now in #{CurrentChannel})", message.Author.Username, firstChannelId, channel.Name);
+
+			// Trigger the same deletion logic as honeypot
+			var triggerTime = timestamp;
+			var startTime = triggerTime.AddSeconds(-pastMsgInterval);
+			var endTime = triggerTime.AddSeconds(futureMsgInterval);
+
+			logger.LogDebug("Triggered={TriggerTime} Start={StartTime} End={EndTime}", triggerTime, startTime, endTime);
+
+			await DeleteUserMessagesInInterval(guild, userId, startTime, endTime, logger);
+
+			_ = Task.Run(async () =>
+			{
+				await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
+			});
+		}
+		else
+		{
+			// Add message to tracker for future comparison
+			messageTracker.AddMessage(userId, channelId, content, timestamp);
+		}
+	}
 };
 
 await client.LoginAsync(TokenType.Bot, token);
