@@ -2,7 +2,7 @@
 
 ## About
 
-This Discord bot fights against spammers by monitoring a honeypot channel called 'intro'. When non-privileged users post in this channel, the bot deletes all their messages from past 5 seconds and continues deleting any new messages for the next 15 seconds. Privileged users (administrators and moderators) are not affected.
+This Discord bot fights against spammers by monitoring a honeypot channel called 'intro'. When non-privileged users post in this channel, the bot deletes all their messages from past 5 minutes and continues deleting any new messages for the next 5 minutes. Privileged users (administrators and moderators) are not affected.
 
 ## Setup
 
@@ -15,8 +15,8 @@ This Discord bot fights against spammers by monitoring a honeypot channel called
 		"HONEYPOTBOT_TOKEN": "your-discord-bot-token-here",
 		"LOG_FORMAT": "text",
 		"LOG_LEVEL": "Information",
-		"PAST_MSG_INTERVAL": "5",
-		"FUTURE_MSG_INTERVAL": "15"
+		"PAST_MSG_INTERVAL": "300",
+		"FUTURE_MSG_INTERVAL": "300"
 	}
 	```
 5. Navigate to the project directory and run:
@@ -31,5 +31,5 @@ Configuration is read from `~/.api-keys` file in JSON format with the following 
 - `HONEYPOTBOT_TOKEN` (required): the Discord bot token from the Discord Developer Portal.
 - `LOG_FORMAT` (default: `text`): the log format, either `text` or `json`.
 - `LOG_LEVEL` (default: `Information`): the log level, either `Trace`, `Debug`, `Information`, `Warning`, `Error`, or `Critical`.
-- `PAST_MSG_INTERVAL` (default: `5`): the number of seconds to look back for older messages to be deleted
-- `FUTURE_MSG_INTERVAL` (default: `15`): the number of seconds that newer messages will be deleted
+- `PAST_MSG_INTERVAL` (default: `300`): the number of seconds to look back for older messages to be deleted
+- `FUTURE_MSG_INTERVAL` (default: `300`): the number of seconds that newer messages will be deleted
