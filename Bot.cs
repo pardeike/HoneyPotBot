@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 var logFormat = Config.Get("LOG_FORMAT") ?? "text";
 var logLevel = Enum.TryParse<LogLevel>(Config.Get("LOG_LEVEL"), out var level) ? level : LogLevel.Information;
 var channelName = Config.Get("CHANNEL_NAME") ?? "intro";
-var pastMsgInterval = int.TryParse(Config.Get("PAST_MSG_INTERVAL"), out var past) ? past : 5;
-var futureMsgInterval = int.TryParse(Config.Get("FUTURE_MSG_INTERVAL"), out var future) ? future : 5;
+var pastMsgInterval = int.TryParse(Config.Get("PAST_MSG_INTERVAL"), out var past) ? past : 300;
+var futureMsgInterval = int.TryParse(Config.Get("FUTURE_MSG_INTERVAL"), out var future) ? future : 300;
 
 using var loggerFactory = LoggerFactory.Create(builder =>
 {
