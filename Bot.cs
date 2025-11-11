@@ -153,6 +153,24 @@ await client.StartAsync();
 
 logger.LogInformation("Bot started successfully");
 
+// Issue 9: Start periodic cleanup task to prevent memory leaks
+_ = Task.Run(async () =>
+{
+	while (true)
+	{
+		await Task.Delay(TimeSpan.FromMinutes(5)); // Run cleanup every 5 minutes
+		try
+		{
+			messageTracker.PerformPeriodicCleanup(DateTimeOffset.UtcNow);
+			logger.LogDebug("Performed periodic cleanup of message tracker");
+		}
+		catch (Exception ex)
+		{
+			logger.LogError(ex, "Error during periodic cleanup");
+		}
+	}
+});
+
 await Task.Delay(-1);
 
 static bool CanBotAccessChannel(SocketTextChannel channel, SocketGuild guild, ILogger logger)

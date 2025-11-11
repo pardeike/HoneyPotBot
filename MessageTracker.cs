@@ -12,7 +12,6 @@ public class MessageTracker
 	private readonly bool _linkRequired;
 	private readonly double _similarityThreshold;
 	private readonly string _honeypotChannelName;
-	private readonly object _cleanupLock = new();
 
 	public MessageTracker(int deltaInterval, int minMsgLength, bool linkRequired, double similarityThreshold, string honeypotChannelName)
 	{
@@ -73,6 +72,10 @@ public class MessageTracker
 
 	public (SpamDetectionResult result, string reason, ulong channelId) CheckMessage(string channelName, ulong userId, ulong channelId, string content, DateTimeOffset timestamp)
 	{
+		// Issue 11: Null content check
+		if (content == null)
+			return (SpamDetectionResult.Ignored, "Message content is null", 0);
+
 		// Clean up old honeypot detections
 		CleanupHoneypotDetections(timestamp);
 
@@ -116,40 +119,76 @@ public class MessageTracker
 		{
 			messages.RemoveAll(m => (currentTime - m.Timestamp).TotalSeconds > _deltaInterval);
 
-			// Clean up empty user entries
+			// Issue 13: Simplified cleanup without double-lock
 			if (messages.Count == 0)
-			{
-				lock (_cleanupLock)
-				{
-					// Double-check after acquiring lock
-					if (messages.Count == 0)
-						_userMessages.TryRemove(userId, out _);
-				}
-			}
+				_userMessages.TryRemove(userId, out _);
 		}
 	}
 
 	private void CleanupHoneypotDetections(DateTimeOffset currentTime)
 	{
-		var usersToRemove = new List<ulong>();
+		// Issue 8: Use ToArray() to avoid enumeration issues during concurrent modifications
+		var expiredUsers = _honeypotDetectedUsers
+			.Where(kvp => (currentTime - kvp.Value).TotalSeconds > _deltaInterval)
+			.Select(kvp => kvp.Key)
+			.ToArray();
 
-		foreach (var kvp in _honeypotDetectedUsers)
-		{
-			if ((currentTime - kvp.Value).TotalSeconds > _deltaInterval)
-				usersToRemove.Add(kvp.Key);
-		}
-
-		foreach (var userId in usersToRemove)
+		foreach (var userId in expiredUsers)
 		{
 			_honeypotDetectedUsers.TryRemove(userId, out _);
 		}
 	}
 
+	// Issue 9: Public method to periodically clean up old data to prevent memory leaks
+	public void PerformPeriodicCleanup(DateTimeOffset currentTime)
+	{
+		// Clean honeypot detections
+		CleanupHoneypotDetections(currentTime);
+
+		// Clean old messages for all users
+		var userIds = _userMessages.Keys.ToArray();
+		foreach (var userId in userIds)
+		{
+			PurgeOldMessages(userId, currentTime);
+		}
+	}
+
 	private static bool ContainsLink(string content)
 	{
-		return content.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
-				 content.Contains("https://", StringComparison.OrdinalIgnoreCase) ||
-				 content.Contains("www.", StringComparison.OrdinalIgnoreCase);
+		// Issue 5: Enhanced link detection to catch more formats
+		if (content.Contains("http://", StringComparison.OrdinalIgnoreCase) ||
+			 content.Contains("https://", StringComparison.OrdinalIgnoreCase))
+			return true;
+
+		// Check for www. followed by domain-like pattern
+		if (content.Contains("www.", StringComparison.OrdinalIgnoreCase))
+		{
+			var wwwIndex = content.IndexOf("www.", StringComparison.OrdinalIgnoreCase);
+			// Simple check: www. should be followed by at least some characters and a dot
+			if (wwwIndex + 4 < content.Length && content.IndexOf('.', wwwIndex + 4) > wwwIndex)
+				return true;
+		}
+
+		// Check for Discord markdown links [text](url)
+		if (content.Contains("](") && content.Contains("["))
+		{
+			var markdownPattern = System.Text.RegularExpressions.Regex.Match(content, @"\[.+?\]\(.+?\)");
+			if (markdownPattern.Success)
+				return true;
+		}
+
+		// Check for common URL patterns without protocol (e.g., "domain.com", "bit.ly/abc")
+		var urlPattern = System.Text.RegularExpressions.Regex.Match(content, @"\b[a-z0-9-]+\.[a-z]{2,}(/\S*)?\b", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+		if (urlPattern.Success)
+		{
+			// Additional validation: common TLDs
+			var tld = urlPattern.Value.Split('/')[0].Split('.').Last().ToLower();
+			var commonTlds = new[] { "com", "org", "net", "io", "co", "ly", "me", "gg", "tv", "dev", "app", "ai" };
+			if (commonTlds.Contains(tld))
+				return true;
+		}
+
+		return false;
 	}
 
 	private bool AreSimilar(string text1, string text2)
@@ -182,6 +221,20 @@ public class MessageTracker
 
 		if (len1 == 0) return len2;
 		if (len2 == 0) return len1;
+
+		// Issue 12: Limit computation for very long messages to prevent excessive memory usage
+		// For messages over 500 chars, truncate to first 500 chars for comparison
+		const int maxComparisonLength = 500;
+		if (len1 > maxComparisonLength)
+		{
+			s1 = s1.Substring(0, maxComparisonLength);
+			len1 = maxComparisonLength;
+		}
+		if (len2 > maxComparisonLength)
+		{
+			s2 = s2.Substring(0, maxComparisonLength);
+			len2 = maxComparisonLength;
+		}
 
 		var d = new int[len1 + 1, len2 + 1];
 
