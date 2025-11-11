@@ -57,7 +57,6 @@ client.Log += msg =>
 		LogSeverity.Debug => LogLevel.Trace,
 		_ => LogLevel.Information
 	};
-	// logger.Log(logLevel, "{Source}: {Message}", msg.Source, msg.Message);
 	return Task.CompletedTask;
 };
 
@@ -69,8 +68,6 @@ client.Ready += () =>
 
 client.MessageReceived += async message =>
 {
-	// logger.LogWarning("Received message in {Channel} from {User}: {Content}", message.Channel.Name, message.Author.Username, message.Content);
-
 	if (message.Channel is not SocketTextChannel channel)
 		return;
 
@@ -91,14 +88,12 @@ client.MessageReceived += async message =>
 	var content = message.Content;
 	var timestamp = message.Timestamp;
 
-	// Check message with unified spam detection logic
 	var (result, reason, firstChannelId) = messageTracker.CheckMessage(channel.Name, userId, channelId, content, timestamp);
 
 	if (result == SpamDetectionResult.HoneypotTriggered)
 	{
 		logger.LogWarning("Potential spammer detected: {User} posted in #{ChannelName}", message.Author.Username, channelName);
 
-		// Calculate time window for message deletion
 		var triggerTime = timestamp;
 		var startTime = triggerTime.AddSeconds(-pastMsgInterval);
 		var endTime = triggerTime.AddSeconds(futureMsgInterval);
@@ -116,7 +111,6 @@ client.MessageReceived += async message =>
 	{
 		logger.LogWarning("Known spammer: {User} previously posted in honeypot channel, deleting message in #{CurrentChannel}", message.Author.Username, channel.Name);
 
-		// Delete this message immediately without running full scan
 		try
 		{
 			await message.DeleteAsync();
@@ -131,7 +125,6 @@ client.MessageReceived += async message =>
 	{
 		logger.LogWarning("Cross-channel spam detected: {User} posted similar messages in multiple channels (first in channel {FirstChannelId}, now in #{CurrentChannel})", message.Author.Username, firstChannelId, channel.Name);
 
-		// Trigger the same deletion logic as honeypot
 		var triggerTime = timestamp;
 		var startTime = triggerTime.AddSeconds(-pastMsgInterval);
 		var endTime = triggerTime.AddSeconds(futureMsgInterval);
@@ -145,7 +138,6 @@ client.MessageReceived += async message =>
 			await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
 		});
 	}
-	// If result is Clean or Ignored, message was already handled by CheckMessage
 };
 
 await client.LoginAsync(TokenType.Bot, token);
@@ -153,12 +145,11 @@ await client.StartAsync();
 
 logger.LogInformation("Bot started successfully");
 
-// Issue 9: Start periodic cleanup task to prevent memory leaks
 _ = Task.Run(async () =>
 {
 	while (true)
 	{
-		await Task.Delay(TimeSpan.FromMinutes(5)); // Run cleanup every 5 minutes
+		await Task.Delay(TimeSpan.FromMinutes(5));
 		try
 		{
 			messageTracker.PerformPeriodicCleanup(DateTimeOffset.UtcNow);
