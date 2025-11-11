@@ -10,14 +10,16 @@ public class MessageTracker
 	private readonly int _minMsgLength;
 	private readonly bool _linkRequired;
 	private readonly double _similarityThreshold;
+	private readonly string _honeypotChannelName;
 	private readonly object _cleanupLock = new();
 
-	public MessageTracker(int deltaInterval, int minMsgLength, bool linkRequired, double similarityThreshold)
+	public MessageTracker(int deltaInterval, int minMsgLength, bool linkRequired, double similarityThreshold, string honeypotChannelName)
 	{
 		_deltaInterval = deltaInterval;
 		_minMsgLength = minMsgLength;
 		_linkRequired = linkRequired;
 		_similarityThreshold = similarityThreshold;
+		_honeypotChannelName = honeypotChannelName;
 	}
 
 	public bool ShouldTrackMessage(string content)
@@ -66,6 +68,27 @@ public class MessageTracker
 		}
 
 		return (false, 0);
+	}
+
+	public (SpamDetectionResult result, string reason, ulong channelId) CheckMessage(string channelName, ulong userId, ulong channelId, string content, DateTimeOffset timestamp)
+	{
+		// Check if message is in honeypot channel
+		if (channelName == _honeypotChannelName)
+			return (SpamDetectionResult.HoneypotTriggered, $"Posted in honeypot channel '{_honeypotChannelName}'", 0);
+
+		// Check for cross-channel spam detection
+		if (!ShouldTrackMessage(content))
+			return (SpamDetectionResult.Ignored, "Message doesn't meet tracking criteria", 0);
+
+		var (isDuplicate, firstChannelId) = CheckForDuplicate(userId, channelId, content, timestamp);
+
+		if (isDuplicate)
+			return (SpamDetectionResult.DuplicateDetected, $"Similar message previously posted in channel {firstChannelId}", firstChannelId);
+
+		// Add message to tracker for future comparison
+		AddMessage(userId, channelId, content, timestamp);
+
+		return (SpamDetectionResult.Clean, "Message is clean", 0);
 	}
 
 	private void PurgeOldMessages(ulong userId, DateTimeOffset currentTime)
@@ -149,4 +172,12 @@ public class MessageTracker
 	}
 
 	private record TrackedMessage(ulong ChannelId, string Content, DateTimeOffset Timestamp);
+}
+
+public enum SpamDetectionResult
+{
+	Clean,
+	Ignored,
+	HoneypotTriggered,
+	DuplicateDetected
 }

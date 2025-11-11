@@ -38,7 +38,7 @@ if (string.IsNullOrEmpty(token))
 logger.LogInformation("Starting HoneyPotBot on channel {ChannelName} (-{PastInterval}s / {FutureInterval}s)", channelName, pastMsgInterval, futureMsgInterval);
 logger.LogInformation("Cross-channel spam detection enabled: delta={DeltaInterval}s, minLength={MinLength}, linkRequired={LinkRequired}, similarity={Similarity}", msgDeltaInterval, minMsgLength, linkRequired, msgSimilarityThreshold);
 
-var messageTracker = new MessageTracker(msgDeltaInterval, minMsgLength, linkRequired, msgSimilarityThreshold);
+var messageTracker = new MessageTracker(msgDeltaInterval, minMsgLength, linkRequired, msgSimilarityThreshold, channelName);
 
 var client = new DiscordSocketClient(new DiscordSocketConfig
 {
@@ -91,17 +91,15 @@ client.MessageReceived += async message =>
 	var content = message.Content;
 	var timestamp = message.Timestamp;
 
-	// Check if message is in honeypot channel
-	if (channel.Name == channelName)
+	// Check message with unified spam detection logic
+	var (result, reason, firstChannelId) = messageTracker.CheckMessage(channel.Name, userId, channelId, content, timestamp);
+
+	if (result == SpamDetectionResult.HoneypotTriggered)
 	{
 		logger.LogWarning("Potential spammer detected: {User} posted in #{ChannelName}", message.Author.Username, channelName);
 
-		// Calculate time window for message deletion:
-		// - triggerTime: when the user posted in the honeypot channel
-		// - startTime: pastMsgInterval seconds before the trigger (to catch earlier spam)
-		// - endTime: futureMsgInterval seconds after the trigger (to catch continued spam)
-		// Both boundaries are inclusive (>= startTime AND <= endTime)
-		var triggerTime = message.Timestamp;
+		// Calculate time window for message deletion
+		var triggerTime = timestamp;
 		var startTime = triggerTime.AddSeconds(-pastMsgInterval);
 		var endTime = triggerTime.AddSeconds(futureMsgInterval);
 
@@ -114,38 +112,25 @@ client.MessageReceived += async message =>
 			await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
 		});
 	}
-	else
+	else if (result == SpamDetectionResult.DuplicateDetected)
 	{
-		// Check for cross-channel spam detection
-		if (!messageTracker.ShouldTrackMessage(content))
-			return;
+		logger.LogWarning("Cross-channel spam detected: {User} posted similar messages in multiple channels (first in channel {FirstChannelId}, now in #{CurrentChannel})", message.Author.Username, firstChannelId, channel.Name);
 
-		var (isDuplicate, firstChannelId) = messageTracker.CheckForDuplicate(userId, channelId, content, timestamp);
+		// Trigger the same deletion logic as honeypot
+		var triggerTime = timestamp;
+		var startTime = triggerTime.AddSeconds(-pastMsgInterval);
+		var endTime = triggerTime.AddSeconds(futureMsgInterval);
 
-		if (isDuplicate)
+		logger.LogDebug("Triggered={TriggerTime} Start={StartTime} End={EndTime}", triggerTime, startTime, endTime);
+
+		await DeleteUserMessagesInInterval(guild, userId, startTime, endTime, logger);
+
+		_ = Task.Run(async () =>
 		{
-			logger.LogWarning("Cross-channel spam detected: {User} posted similar messages in multiple channels (first in channel {FirstChannelId}, now in #{CurrentChannel})", message.Author.Username, firstChannelId, channel.Name);
-
-			// Trigger the same deletion logic as honeypot
-			var triggerTime = timestamp;
-			var startTime = triggerTime.AddSeconds(-pastMsgInterval);
-			var endTime = triggerTime.AddSeconds(futureMsgInterval);
-
-			logger.LogDebug("Triggered={TriggerTime} Start={StartTime} End={EndTime}", triggerTime, startTime, endTime);
-
-			await DeleteUserMessagesInInterval(guild, userId, startTime, endTime, logger);
-
-			_ = Task.Run(async () =>
-			{
-				await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
-			});
-		}
-		else
-		{
-			// Add message to tracker for future comparison
-			messageTracker.AddMessage(userId, channelId, content, timestamp);
-		}
+			await MonitorAndDeleteMessages(guild, userId, startTime, endTime, message.Author.Username, logger);
+		});
 	}
+	// If result is Clean or Ignored, message was already handled by CheckMessage
 };
 
 await client.LoginAsync(TokenType.Bot, token);
