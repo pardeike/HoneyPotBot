@@ -168,7 +168,7 @@ static bool CanBotAccessChannel(SocketTextChannel channel, SocketGuild guild, IL
 {
 	var botUser = guild.CurrentUser;
 	var permissions = botUser.GetPermissions(channel);
-	return permissions.ViewChannel && permissions.ManageMessages;
+	return permissions.ViewChannel && permissions.ReadMessageHistory && permissions.ManageMessages;
 }
 
 static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, DateTimeOffset startTime, DateTimeOffset endTime, ILogger logger)
@@ -186,8 +186,8 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 			{
 				var messages = await channel.GetMessagesAsync(100).FlattenAsync();
 				var userMessages = messages
-					.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
-					.ToList();
+											.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
+											.ToList();
 
 				foreach (var msg in userMessages)
 				{
@@ -202,9 +202,9 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 					}
 				}
 			}
-			catch
+			catch (Exception ex)
 			{
-				logger.LogError("Failed to get messages from #{Channel}", channel.Name);
+				logger.LogError(ex, "Failed to get messages from #{Channel}", channel.Name);
 			}
 		}));
 	}
@@ -237,8 +237,8 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 				{
 					var messages = await channel.GetMessagesAsync(10).FlattenAsync();
 					var userMessages = messages
-						.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
-						.ToList();
+											.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
+											.ToList();
 
 					foreach (var msg in userMessages)
 					{
@@ -253,9 +253,9 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 						}
 					}
 				}
-				catch
+				catch (Exception ex)
 				{
-					logger.LogError("Failed to monitor messages in #{Channel}", channel.Name);
+					logger.LogError(ex, "Failed to monitor messages in #{Channel}", channel.Name);
 				}
 			}));
 		}
