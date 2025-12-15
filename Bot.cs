@@ -273,7 +273,7 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 
 		if (hasError)
 			currentDelayMs = Math.Min(currentDelayMs * 2, maxDelayMs);
-		else
-			currentDelayMs = baseDelayMs;
+		else if (currentDelayMs > baseDelayMs)
+			currentDelayMs = Math.Max(currentDelayMs / 2, baseDelayMs);
 	}
 }
