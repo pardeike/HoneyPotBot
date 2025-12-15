@@ -173,14 +173,16 @@ static bool CanBotAccessChannel(SocketTextChannel channel, SocketGuild guild, IL
 
 static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, DateTimeOffset startTime, DateTimeOffset endTime, ILogger logger)
 {
-	var tasks = new List<Task>();
-
 	foreach (var channel in guild.TextChannels)
 	{
 		if (!CanBotAccessChannel(channel, guild, logger))
 			continue;
 
-		tasks.Add(Task.Run(async () =>
+		var retryCount = 0;
+		var maxRetries = 3;
+		var success = false;
+
+		while (!success && retryCount < maxRetries)
 		{
 			try
 			{
@@ -201,15 +203,20 @@ static async Task DeleteUserMessagesInInterval(SocketGuild guild, ulong userId, 
 						logger.LogError(ex, "Failed to delete message {MessageId} in #{Channel}", msg.Id, channel.Name);
 					}
 				}
+
+				success = true;
+				await Task.Delay(100);
 			}
 			catch (Exception ex)
 			{
-				logger.LogError(ex, "Failed to get messages from #{Channel}", channel.Name);
+				retryCount++;
+				var delayMs = Math.Min(1000 * (int)Math.Pow(2, retryCount), 10000);
+				logger.LogWarning(ex, "Failed to get messages from #{Channel}, retry {Retry}/{MaxRetries} after {Delay}ms", channel.Name, retryCount, maxRetries, delayMs);
+				if (retryCount < maxRetries)
+					await Task.Delay(delayMs);
 			}
-		}));
+		}
 	}
-
-	await Task.WhenAll(tasks);
 }
 
 static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, DateTimeOffset startTime, DateTimeOffset endTime, string username, ILogger logger)
@@ -220,46 +227,53 @@ static async Task MonitorAndDeleteMessages(SocketGuild guild, ulong userId, Date
 	if (remainingTime > TimeSpan.Zero)
 		logger.LogInformation("Monitoring user {User} for {Seconds} more seconds", username, remainingTime.TotalSeconds);
 
+	var baseDelayMs = 5000;
+	var currentDelayMs = baseDelayMs;
+	var maxDelayMs = 30000;
+
 	while (DateTimeOffset.UtcNow < endTime)
 	{
-		await Task.Delay(1000);
+		await Task.Delay(currentDelayMs);
 
-		var tasks = new List<Task>();
+		var hasError = false;
 
 		foreach (var channel in guild.TextChannels)
 		{
 			if (!CanBotAccessChannel(channel, guild, logger))
 				continue;
 
-			tasks.Add(Task.Run(async () =>
+			try
 			{
-				try
-				{
-					var messages = await channel.GetMessagesAsync(10).FlattenAsync();
-					var userMessages = messages
-											.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
-											.ToList();
+				var messages = await channel.GetMessagesAsync(10).FlattenAsync();
+				var userMessages = messages
+										.Where(m => m.Author.Id == userId && m.Timestamp >= startTime && m.Timestamp <= endTime)
+										.ToList();
 
-					foreach (var msg in userMessages)
+				foreach (var msg in userMessages)
+				{
+					try
 					{
-						try
-						{
-							await msg.DeleteAsync();
-							logger.LogInformation("!!! Deleted new message from user {UserId} in #{Channel}: {Message}", userId, channel.Name, msg.Content);
-						}
-						catch (Exception ex)
-						{
-							logger.LogError(ex, "Failed to delete message {MessageId} in #{Channel}", msg.Id, channel.Name);
-						}
+						await msg.DeleteAsync();
+						logger.LogInformation("!!! Deleted new message from user {UserId} in #{Channel}: {Message}", userId, channel.Name, msg.Content);
+					}
+					catch (Exception ex)
+					{
+						logger.LogError(ex, "Failed to delete message {MessageId} in #{Channel}", msg.Id, channel.Name);
 					}
 				}
-				catch (Exception ex)
-				{
-					logger.LogError(ex, "Failed to monitor messages in #{Channel}", channel.Name);
-				}
-			}));
+
+				await Task.Delay(100);
+			}
+			catch (Exception ex)
+			{
+				hasError = true;
+				logger.LogWarning(ex, "Failed to monitor messages in #{Channel}, will retry with backoff", channel.Name);
+			}
 		}
 
-		await Task.WhenAll(tasks);
+		if (hasError)
+			currentDelayMs = Math.Min(currentDelayMs * 2, maxDelayMs);
+		else
+			currentDelayMs = baseDelayMs;
 	}
 }
